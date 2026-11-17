@@ -14,6 +14,8 @@ if(!input.endsWith('.json')) input=join(input,'snapshot.json');
 const out=resolve(option('output',process.env.MAKEFUN_OUTPUT_DIR??'/output'));
 const snapshot=parseSnapshot(readFileSync(input,'utf8'));
 const {board,radar}=buildRadar(snapshot);
+// Keep scenario values and every six-step plan tied to the same sealed snapshot.
+if (radar.as_of !== snapshot.as_of) throw Error('Snapshot date mismatch');
 const issue=boardIssue(board,snapshot);
 if(issue) throw Error(issue);
 mkdirSync(out,{recursive:true});

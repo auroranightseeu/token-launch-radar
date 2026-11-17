@@ -1,0 +1,61 @@
+{
+  "rows": 178,
+  "watchlist": "40/40",
+  "early": 138,
+  "top": {
+    "name": "Steakhouse Financial",
+    "value": 113529413
+  },
+  "bottom": {
+    "name": "Monarq",
+    "value": 1673067
+  },
+  "boardBytes": 500184,
+  "farmStepLengths": [
+    341,
+    433
+  ],
+  "dashboardFiles": 4,
+  "dashboardBytes": 24563,
+  "sourceBytes": 24563,
+  "dossierBytes": 1292051,
+  "dossierMatches": true,
+  "screenshots": [
+    {
+      "name": "1-board.png",
+      "bytes": 279254,
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "name": "2-detail.png",
+      "bytes": 263417,
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "name": "3-filtered.png",
+      "bytes": 407108,
+      "width": 1440,
+      "height": 900
+    }
+  ],
+  "screenshotContentStatus": "OK: real renders of the Signal dashboard at 1440x900, captured with local Chromium via capture.cjs (coordinator exec, outside the Codex sandbox). Board scrolled to the table (10 rows visible, model notes on top), detail of rank-1 Steakhouse Financial with per-protocol evidence plan, Lending-filtered view (14/178 visible, FILTERED). All three visually verified.",
+  "main": {
+    "sha256": "a5ed76e9a5616c66f2f15c06bc7c128ad96f6adad77b04f9854767af505f8dbb",
+    "bytes": 1932
+  },
+  "ranksContiguous": true,
+  "valuesNonIncreasing": true,
+  "farmStepsPerRow": 6,
+  "networkUrlCount": 0,
+  "sourceComplete": true,
+  "runtimeSeconds": [
+    0.483,
+    0.526
+  ],
+  "deterministicBoard": true,
+  "deterministicDossier": true,
+  "nodeVersion": "v24.22.1",
+  "session": "01a1e9b9-ff43-7131-97a3-e12228022028"
+}

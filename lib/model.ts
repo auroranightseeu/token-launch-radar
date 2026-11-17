@@ -34,25 +34,34 @@ function playbook(category) {
   if (/yield|farm|vault/.test(c)) return ['Inspect underlying assets, leverage and exit fees; deposit into one simple vault and retain its share receipt.', 'Review realized yield and exposures; harvest only when rewards exceed transaction fees.'];
   return ['Inspect documented product mechanics and withdrawal routes; test the smallest supported core action. Skip funding if unclear.', 'Repeat one documented core action only when useful; check balances and withdrawal availability first.'];
 }
-export function farmSteps(p, age) {
-  const chain = p.chains[0] ?? 'the documented network';
+// Evidence repeats deliberately: each standalone step preserves its snapshot context.
+export function farmSteps(p, age, implied) {
+  const chain = p.chains[0] ?? 'documented network';
   const capital = p.tvl_usd >= 1e9 ? 150 : p.tvl_usd >= 5e7 ? 100 : 50;
+  const tier = p.tvl_usd >= 1e9 ? 'large' : p.tvl_usd >= 5e7 ? 'floor' : 'early';
   const hold = age === null ? 45 : age < 180 ? 60 : age < 730 ? 45 : 30;
   const gas = /ethereum/i.test(chain) ? '$5–20' : '$0.20–3';
+  const chains = p.chains.slice(0,2).join('/') || 'unreported';
+  const growth = p.change_7d === null ? 'unknown' : `${p.change_7d >= 0 ? '+' : ''}${p.change_7d}%`;
+  // Chain order is the snapshot's order, not a TVL ranking: no per-chain balances exist.
+  const evidence = `${p.name}: TVL $${p.tvl_usd}; listed chains ${chains} (${p.chains.length} total); age ${age === null ? 'unknown' : age+'d'}; 7d ${growth}; implied $${implied}; ${tier} tier $${capital}.`;
   const [action,weekly] = playbook(p.category);
+  const pace = p.change_7d !== null && p.change_7d < 0
+    ? 'Outflows: test exit before adding; stop if liquidity is thin.'
+    : 'Test exit before any repeat; growth is not safety evidence.';
   return [
-    `01 / Prepare a separate wallet for ${p.name} on ${chain}. Find its official app through independently verified protocol documentation; this snapshot has no URL. Check supported assets and approvals. Cost: ${gas} native gas plus $${capital} risk capital. Time: 15 minutes.`,
-    `02 / ${p.category ?? 'Protocol'} entry: ${action} Cap exposure at $${capital}; if minimums exceed this, observe instead. Cost: ${gas} gas plus displayed spread/product fees; capital is at risk. Time: 20–30 minutes.`,
-    `03 / Weekly: ${weekly} Verify published points criteria rather than assuming rewards. Cost: ${gas} per active week plus displayed fees; never pay for artificial activity. Time: 10 minutes weekly.`,
-    `04 / Review for ${hold} days (${age === null ? 'unknown listing age; conservative default' : age+' days since listing'}). Test a small withdrawal and exit on contract or liquidity concerns; do not hold merely for points. Cost: up to $${capital} tied up with possible loss, plus ${gas} exit gas. Time: ${hold} days, 5 minutes per review.`,
-    `05 / Check ${p.name}'s own published rewards announcements. Claim only through a link published by the protocol and verified against its documentation; never pay to claim or share a seed. No launch or eligibility is promised. Cost: $0 to check; verified network gas only if applicable. Time: 5 minutes weekly.`,
-    `06 / Log ${chain}, wallet, transaction hashes, amounts, fees, approvals, entry date and ${hold}-day review date. Save eligibility evidence, record the exit and compare rewards with total costs. Cost: $0 for a local log; ${gas} if revoking approval. Time: 5 minutes per session.`
+    `01 / ${evidence} Verify official documentation, ${chain} deployment, assets and contract address independently; snapshot has no app link. Use a separate wallet on ONE chain. Cost: $0 research; reserve ${gas} gas, $${capital} at-risk capital. Time: 15 min.`,
+    `02 / ${evidence} On ${chain}: ${action} Exposure <=$${capital}; observe if minimum exceeds budget. Cost: ${gas} gas plus displayed fees/spread; loss possible. Time: 20–30 min.`,
+    `03 / ${evidence} ${weekly} ${pace} Cost: ${gas} per active week plus quoted fees; no activity solely for rewards. Time: 10 min weekly.`,
+    `04 / ${evidence} Review for ${hold} days; test $5 withdrawal (or minimum <=$${capital}), then redeem remainder if exit works. Stop on contract or liquidity concerns. Cost: ${gas} exit gas plus quoted exit fee; up to $${capital} at risk. Time: ${hold} days, 5 min/review; queue may delay exit.`,
+    `05 / ${evidence} Read ${p.name}'s verified disclosures and reward rules only if published. No launch, campaign or eligibility assumed. Ignore unsolicited claim links; never share seed or pay a claim fee. Cost: $0 research; ${gas} gas only for a verified optional claim. Time: 5 min weekly.`,
+    `06 / ${evidence} Log ${chain} transactions, fees, entry/exit, approvals and ${hold}-day review date. Compare realized outcome with costs; implied value is not wallet profit. Revoke unused approvals after exit. Cost: $0 local log; ${gas} per revocation. Time: 5 min/session.`
   ];
 }
 export function buildRadar(s) {
   const watch = new Set(s.watchlist);
   const board = s.protocols.filter(p => watch.has(p.slug) || (p.tvl_usd < s.floor_usd && isRankable(p)))
-    .map(p => {const model=impliedValue(p,s.as_of); return {...p,model,age_days:model.age_days,implied_value_usd:model.implied_value_usd,watchlist:watch.has(p.slug),farm_steps:farmSteps(p,model.age_days)};})
+    .map(p => {const model=impliedValue(p,s.as_of); return {...p,model,age_days:model.age_days,implied_value_usd:model.implied_value_usd,watchlist:watch.has(p.slug),farm_steps:farmSteps(p,model.age_days,model.implied_value_usd)};})
     .sort((a,b) => b.implied_value_usd-a.implied_value_usd || (a.slug<b.slug?-1:1)).map((r,i)=>({...r,rank:i+1}));
   const live=s.protocols.filter(p=>!isPreToken(p)).sort((a,b)=>(b.mcap_usd??-1)-(a.mcap_usd??-1)||(a.slug<b.slug?-1:1));
   return {board,radar:{as_of:s.as_of,model_version:MODEL_VERSION,rows:board,live,board_size:board.length,watchlist_size:watch.size,early_size:board.length-watch.size,live_size:live.length}};
