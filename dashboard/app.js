@@ -8,6 +8,14 @@
   const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   $('stamp').textContent=`SNAPSHOT / ${D.as_of} UTC · ${D.model_version.toUpperCase()}`;
   $('metrics').innerHTML=[[D.board_size,'ranked protocols'],[D.watchlist_size+'/'+D.watchlist_size,'watchlist covered'],[D.early_size,'early / below $50M'],[D.live_size,'live / kept separate']].map(([n,t])=>`<div class="metric"><b>${n}</b><span>${t}</span></div>`).join('');
+  const C=D.calibration;
+  if(C){
+    const fmt=n=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',notation:'compact',maximumFractionDigits:2}).format(n);
+    $('b-scale').textContent=`B = ${fmt(C.scale_usd)} × log₂(1 + TVL / $50M)${C.fallback?' (assumed — calibration fallback)':' (fitted)'}`;
+    const m2=C.oof.radar2, m3=C.oof.radar3;
+    const sgn=n=>(n>=0?'+':'')+n.toFixed(2);
+    $('calibration').innerHTML=`<span class="eyebrow">CALIBRATION / FITTED ON ${C.n} PROTOCOLS THAT ALREADY TRADE</span><div class="chips"><div><b class="hl">${fmt(C.scale_usd)}</b><span>fitted scale (was $20M assumed)</span></div><div><b>× ${C.ratio_vs_20m.toFixed(3)}</b><span>scale vs the $20M assumption</span></div><div><b>${C.n}</b><span>tokened protocols, mcap &gt; 0</span></div><div><b>${m2.median_abs_log_err.toFixed(3)} → ${m3.median_abs_log_err.toFixed(3)}</b><span>holdout median log error, radar-2 → radar-3</span></div><div><b>${sgn(m2.bias)} → ${sgn(m3.bias)}</b><span>holdout bias, radar-2 → radar-3</span></div></div><p>5-fold holdout on the 128 tokened protocols: the fitted scale removes the +22% level bias and lowers the median error. Ranking is unchanged — a pure scale change cannot re-rank. Method and limits in METHOD.md.</p>`;
+  }
   function categories(){
     const old=$('category').value;
     $('category').innerHTML='<option value="">All categories</option>'+[...new Set((state.live?D.live:D.rows).map(r=>r.category||'Other'))].sort().map(c=>`<option>${esc(c)}</option>`).join('');

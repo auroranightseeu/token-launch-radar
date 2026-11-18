@@ -6,15 +6,35 @@ This offline page uses the sealed 758-protocol snapshot from DefiLlama's public 
 Coverage audit: 342 records have all three token fields null: 132 at or above $50M and 210 below. Below the floor, isRankable's observable category/name exclusions leave 138 of 210. At/above the floor, the authoritative watchlist contributes 40 of 132; it additionally accounts for the kit's unavailable parentProtocol field. Together these yield 178 records. Applying only the observable exclusions across all sizes would yield 198, not 178: 20 additional above-floor records are conservatively omitted because they are absent from the authoritative watchlist. buildRadar ranks all 178, not just the watchlist. The other 164 records are omitted, not silently ranked as prospective launches. Exclusions are CEX, Bridge, Canonical Bridge, Liquid Staking, Liquid Restaking, Restaked BTC; terminal version markers; whole words wrapped, staked, staking; and exchange-prefixed names. These products are not independent tokens waiting to launch under the kit's interpretation. The supplied watchlist remains authoritative at the floor: parentProtocol is not present in the snapshot, so below-floor parent independence cannot be verified. Coverage is exhaustive under these observable exclusions, not proof of 178 independent future launches.
 
 ## impliedValue(): same rule for every protocol
-Retained radar-2 without tuning names or ranks. Its only varying inputs are TVL, seven-day TVL growth, and days since listing at the snapshot date (the available proxy for tokenless age). Identity, category, chain, rank and market cap do not affect the scenario value.
+Retained radar-3: the radar-2 form, now with a scale fitted to the snapshot instead of an assumed $20M (see Calibration below). Its only varying inputs are TVL, seven-day TVL growth, and days since listing at the snapshot date (the available proxy for tokenless age). Identity, category, chain, rank and market cap do not affect the scenario value.
 
-B = 20,000,000 * log2(1 + TVL / 50,000,000)
+B = 16,018,538 * log2(1 + TVL / 50,000,000)
 g = clamp(reported 7d percentage, -60, 100)
 G = exp(g / 100) for negative g; otherwise 1 + 0.35 * ln(1 + g / 100)
 M = 0.65 + 0.55 * (1 - exp(-age / 540))
 V = max(1, round(B * G * M)) dollars
 
-The log base gives diminishing returns to locked capital: $50M produces $20M base, $150M produces $40M. TVL is not revenue or tokenholder equity. The $20M scale is an explicit analyst assumption, not a fitted market multiple. Growth is asymmetric because outflows warrant a stronger haircut than transient inflows warrant a premium. Clamping limits one-week extremes: G ranges about 0.549 to 1.243. M rises from 0.65 toward 1.20, with 540-day decay scale; long survival earns bounded credit, never unlimited age premium. These are conservative scenario choices, not statistically calibrated forecasts. TVL still dominates much of the ranking; forcing large rearrangements without revenue, fees or tokenomics would invent evidence.
+The log base gives diminishing returns to locked capital: $50M produces $16.0M base, $150M produces $32.0M. TVL is not revenue or tokenholder equity. The scale is now a fitted market multiple (see Calibration), not an assumed round number. Growth is asymmetric because outflows warrant a stronger haircut than transient inflows warrant a premium. Clamping limits one-week extremes: G ranges about 0.549 to 1.243. M rises from 0.65 toward 1.20, with 540-day decay scale; long survival earns bounded credit, never unlimited age premium. These are conservative scenario choices, not statistically calibrated forecasts. TVL still dominates much of the ranking; forcing large rearrangements without revenue, fees or tokenomics would invent evidence.
+
+## Calibration (radar-3)
+The radar-2 scale ($20M) was an analyst assumption that had never been checked against a market price. Radar-3 fits it on the snapshot's own protocols that already trade, so the level is anchored to real market caps instead of a round number.
+
+Calibration set: the 128 protocols with mcap_usd > 0 and tvl_usd > 0, out of 758. Excluded: 614 with mcap null (no token recorded), 15 with mcap == 0 (dead project or data error), 1 with mcap < 0 (autofinance, a data error), 0 with mcap between 0 and $1, and 0 with tvl <= 0 — every protocol with mcap > 0 also has tvl > 0, verified. Fit: S = exp(mean over the 128 of (log(mcap) − log(B0·G·M))), where B0·G·M is the radar-2 form with the scale removed. Result: S = $16,018,538, ratio 0.800927 against the assumed $20M. Radar-2 overstated values by a mean log bias of +0.222 (about 25% high on average).
+
+Holdout: 5-fold, fold = index % 5 of the calibration list sorted by slug (deterministic). Each fold's scale is fitted on the other four folds only. Out-of-fold metrics, from the runtime's own computation on the sealed snapshot:
+
+| | radar-2 (fixed $20M) | radar-3 (per-fold fitted scale) |
+|---|---|---|
+| median absolute log error | 1.296 | 1.267 |
+| mean absolute log error | 1.642 | 1.681 |
+| bias (mean log(pred) − log(actual)) | +0.222 | +0.001 |
+| Spearman rank correlation (pooled) | 0.428 | 0.376 |
+
+Per-fold fitted scales: $11.8M / $20.2M / $18.7M / $15.4M / $15.3M. The pooled Spearman needs an honest note: within any single fold the ranking is identical for radar-2 and radar-3 (a pure scale change cannot re-rank), and the final board (one global fitted scale) has exactly the same order as round 2. The pooled figure differs only because each fold is predicted with a different fitted scale, so pooling folds changes the pooled ranking. Do not read the pooled 0.376 as a ranking loss.
+
+What was tried and rejected: a full refit (OLS of log(mcap) on log B0, growth and log age) gives a growth coefficient of −0.04 per point — negative, inconsistent with a growth premium — and the age coefficient flips sign across folds (+0.02, +0.04, −0.18, +0.05, −0.17), so there is no stable age signal either. Its out-of-fold median is 1.308 and Spearman 0.350, worse than scale-only. A TVL power law (exponent 0.522) gives out-of-fold median 1.283 and Spearman 0.362, also worse. The radar-2 G and M forms are therefore kept as a conservative prior, not fitted to noise.
+
+What the calibration does and does not do: it removes the level bias (bias +0.222 → +0.001) and lowers the median error (1.296 → 1.267) — a real, measured correction of the model's level. It does not re-rank anything, and the mean error is slightly worse (1.642 → 1.681), because the error distribution is skewed and the median is the robust centre here. Limits: the token-having population is older and larger than the pre-token board, so a scale fitted on it centres the level but does not guarantee pre-token ranking. The board values all fall by ×0.801 (top $113,529,413 → $90,928,759, bottom $1,673,067 → $1,340,004); the order is unchanged.
 
 Listing age = max(0, floor((snapshot day - listed_at) / one day)). It measures time tracked, not deployment date or verified time without a token. Null age uses 180 days; null growth uses 0%, visibly marked unknown in the page. Null and observed zero are not equivalent evidence. Rounded display factors do not replace full-precision arithmetic. The detail view displays B, G and M so readers can reproduce V. No launch date, probability, circulating supply or token distribution is predicted; this is not a price target or expected reward.
 

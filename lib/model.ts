@@ -1,5 +1,5 @@
 // Identity and category never enter this snapshot-only value model.
-export const MODEL_VERSION = 'radar-2';
+export const MODEL_VERSION = 'radar-3';
 export const parseSnapshot = text => JSON.parse(text);
 export const isPreToken = p => p.mcap_usd === null && p.gecko_id === null && p.symbol === null;
 export function isRankable(p) {
@@ -8,15 +8,92 @@ export function isRankable(p) {
     && !/\b(?:wrapped|staked|staking)\b/i.test(p.name)
     && !/^(?:Binance|Coinbase|Bybit|Kraken|Bitget|OKX|Bitfinex|Gemini)/i.test(p.name);
 }
-export function impliedValue(p, asOf) {
+export function impliedValue(p, asOf, scaleUsd = 20000000) {
   const age_days = p.listed_at ? Math.max(0, Math.floor((Date.parse(asOf)-Date.parse(p.listed_at))/86400000)) : null;
   const effective_age_days = age_days ?? 180;
   const growth_pct = Math.max(-60, Math.min(100, p.change_7d ?? 0));
-  const base_usd = 20000000 * Math.log1p(p.tvl_usd/50000000)/Math.LN2;
+  const base_usd = scaleUsd * Math.log1p(p.tvl_usd/50000000)/Math.LN2;
   const growth_multiplier = growth_pct < 0 ? Math.exp(growth_pct/100) : 1+0.35*Math.log1p(growth_pct/100);
   const maturity_multiplier = 0.65+0.55*(1-Math.exp(-effective_age_days/540));
   return {age_days, effective_age_days, growth_pct, base_usd, growth_multiplier, maturity_multiplier,
     implied_value_usd:Math.max(1,Math.round(base_usd*growth_multiplier*maturity_multiplier))};
+}
+// Scale-free unit of the radar-2 form: implied = scaleUsd * unit. Used only
+// by calibrate() so the fit is exact (no rounding, no clamp) and stays in one place.
+function unitValue(p, asOf) {
+  const age_days = p.listed_at ? Math.max(0, Math.floor((Date.parse(asOf)-Date.parse(p.listed_at))/86400000)) : null;
+  const effective_age_days = age_days ?? 180;
+  const growth_pct = Math.max(-60, Math.min(100, p.change_7d ?? 0));
+  const growth_multiplier = growth_pct < 0 ? Math.exp(growth_pct/100) : 1+0.35*Math.log1p(growth_pct/100);
+  const maturity_multiplier = 0.65+0.55*(1-Math.exp(-effective_age_days/540));
+  return {unit: Math.log1p(p.tvl_usd/50000000)/Math.LN2 * growth_multiplier * maturity_multiplier};
+}
+const _median = xs => { const s=[...xs].sort((a,b)=>a-b); const n=s.length; return n%2 ? s[(n-1)/2] : (s[n/2-1]+s[n/2])/2; };
+const _mean = xs => xs.reduce((a,b)=>a+b,0)/xs.length;
+function _ranksAvg(xs) {
+  const order = xs.map((v,i)=>[v,i]).sort((a,b)=>a[0]-b[0]);
+  const r = new Array(xs.length);
+  for (let i=0;i<order.length;) {
+    let j=i; while (j+1<order.length && order[j+1][0]===order[i][0]) j++;
+    const avg=(i+j)/2+1; for (let k=i;k<=j;k++) r[order[k][1]]=avg; i=j+1;
+  }
+  return r;
+}
+function _spearman(xs, ys) {
+  const rx=_ranksAvg(xs), ry=_ranksAvg(ys), mx=_mean(rx), my=_mean(ry);
+  let num=0, dx=0, dy=0;
+  for (let i=0;i<xs.length;i++) { num+=(rx[i]-mx)*(ry[i]-my); dx+=(rx[i]-mx)**2; dy+=(ry[i]-my)**2; }
+  return num/Math.sqrt(dx*dy);
+}
+function _oofMetrics(actual, pred) {
+  const le = actual.map((a,i)=>Math.log(pred[i])-Math.log(a));
+  return {n:actual.length, median_abs_log_err:_median(le.map(Math.abs)), mean_abs_log_err:_mean(le.map(Math.abs)),
+    bias:_mean(le), spearman:_spearman(actual,pred)};
+}
+// Calibrate the value-model scale on protocols that already have a token.
+// The runtime computes the scale from the snapshot; nothing is hardcoded.
+// Calibration set: mcap_usd > 0 AND tvl_usd > 0. Fit: S = exp(mean(log(mcap)
+// - log(B0*G*M))) with the exact radar-2 G/M forms. 5-fold holdout (fold =
+// index % 5 of the calibration list sorted by slug) reports out-of-fold
+// metrics for radar-2 (fixed $20M scale) and radar-3 (per-fold fitted scale).
+// Fallback: fewer than 20 calibration protocols or a non-finite fit keeps
+// the $20M scale and flags fallback: true.
+export function calibrate(s) {
+  const exclusions = {mcap_null:0, mcap_zero:0, mcap_negative:0, mcap_sub_dollar:0, tvl_nonpositive:0};
+  const set = [];
+  for (const p of s.protocols) {
+    if (p.mcap_usd === null) { exclusions.mcap_null++; continue; }
+    if (p.mcap_usd === 0) { exclusions.mcap_zero++; continue; }
+    if (p.mcap_usd < 0) { exclusions.mcap_negative++; continue; }
+    if (p.mcap_usd < 1) { exclusions.mcap_sub_dollar++; continue; }
+    if (!(p.tvl_usd > 0)) { exclusions.tvl_nonpositive++; continue; }
+    set.push(p);
+  }
+  set.sort((a,b)=> a.slug<b.slug?-1:1);
+  const fitScale = rows => {
+    if (!rows.length) return null;
+    const v = Math.exp(_mean(rows.map(p => Math.log(p.mcap_usd) - Math.log(unitValue(p, s.as_of).unit))));
+    return Number.isFinite(v) && v > 0 ? v : null;
+  };
+  let scale_usd = 20000000, fallback = false;
+  if (set.length >= 20) { const f = fitScale(set); if (f === null) fallback = true; else scale_usd = f; }
+  else fallback = true;
+  const folds = [[],[],[],[],[]];
+  set.forEach((p,i)=>folds[i%5].push(p));
+  const per_fold_scales_usd = [];
+  const oof2 = {actual:[], pred:[]}, oof3 = {actual:[], pred:[]};
+  for (let f=0; f<5; f++) {
+    const train = folds.flatMap((fl,i)=> i===f ? [] : fl);
+    const sF = fitScale(train) ?? 20000000;
+    per_fold_scales_usd.push(sF);
+    for (const p of folds[f]) {
+      const u = unitValue(p, s.as_of).unit;
+      oof2.actual.push(p.mcap_usd); oof2.pred.push(20000000*u);
+      oof3.actual.push(p.mcap_usd); oof3.pred.push(sF*u);
+    }
+  }
+  return {scale_usd, ratio_vs_20m: scale_usd/20000000, n:set.length, exclusions,
+    per_fold_scales_usd, oof:{radar2:_oofMetrics(oof2.actual,oof2.pred), radar3:_oofMetrics(oof3.actual,oof3.pred)}, fallback};
 }
 function playbook(category) {
   const c = (category ?? '').toLowerCase();
@@ -59,12 +136,13 @@ export function farmSteps(p, age, implied) {
   ];
 }
 export function buildRadar(s) {
+  const calibration = calibrate(s);
   const watch = new Set(s.watchlist);
   const board = s.protocols.filter(p => watch.has(p.slug) || (p.tvl_usd < s.floor_usd && isRankable(p)))
-    .map(p => {const model=impliedValue(p,s.as_of); return {...p,model,age_days:model.age_days,implied_value_usd:model.implied_value_usd,watchlist:watch.has(p.slug),farm_steps:farmSteps(p,model.age_days,model.implied_value_usd)};})
+    .map(p => {const model=impliedValue(p,s.as_of,calibration.scale_usd); return {...p,model,age_days:model.age_days,implied_value_usd:model.implied_value_usd,watchlist:watch.has(p.slug),farm_steps:farmSteps(p,model.age_days,model.implied_value_usd)};})
     .sort((a,b) => b.implied_value_usd-a.implied_value_usd || (a.slug<b.slug?-1:1)).map((r,i)=>({...r,rank:i+1}));
   const live=s.protocols.filter(p=>!isPreToken(p)).sort((a,b)=>(b.mcap_usd??-1)-(a.mcap_usd??-1)||(a.slug<b.slug?-1:1));
-  return {board,radar:{as_of:s.as_of,model_version:MODEL_VERSION,rows:board,live,board_size:board.length,watchlist_size:watch.size,early_size:board.length-watch.size,live_size:live.length}};
+  return {board,radar:{as_of:s.as_of,model_version:MODEL_VERSION,rows:board,live,board_size:board.length,watchlist_size:watch.size,early_size:board.length-watch.size,live_size:live.length,calibration}};
 }
 export function boardIssue(board,s) {
   if(board.length<100||board.length>4000) return 'Board size';
