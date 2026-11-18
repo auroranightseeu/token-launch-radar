@@ -14,6 +14,10 @@ const fs=require('node:fs'),crypto=require('node:crypto');
   await page.locator('#rows tr').first().waitFor();
   // Keep model notes visible above the table while exposing at least ten rows.
   await page.evaluate(()=>window.scrollTo(0,document.querySelector('.model').offsetTop-12));
+  await page.evaluate(()=>window.scrollBy(0,220));
+  const visibleSkips=await page.locator('#rows tr').evaluateAll(rs=>rs.slice(0,5).map(r=>{const e=r.querySelector('.badge.verdict.skip'),b=e?.getBoundingClientRect();return {name:r.querySelector('.protocol b').textContent,present:!!e,word:e?.innerText,box:b&&{x:b.x,y:b.y,width:b.width,height:b.height},inside:!!b&&b.width>0&&b.height>0&&b.left>=0&&b.top>=0&&b.right<=innerWidth&&b.bottom<=innerHeight}}));
+  console.log('Top-row SKIP visibility:',JSON.stringify(visibleSkips));
+  if(visibleSkips.some(v=>!v.present||!v.inside)) throw new Error('Top-row SKIP verdict badge is not visible');
   await page.screenshot({path:'screenshots/1-board.png'});
   console.log(await page.locator('#count').innerText());
   await page.locator('tbody tr').first().click();

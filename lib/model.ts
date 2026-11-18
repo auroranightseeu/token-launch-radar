@@ -1,5 +1,7 @@
 // Identity and category never enter this snapshot-only value model.
-export const MODEL_VERSION = 'radar-3';
+// Round 4 keeps the radar-3 value model unchanged (same fitted scale, same
+// B/G/M forms); it adds netted farm verdicts, value bands and full coverage.
+export const MODEL_VERSION = 'radar-4';
 export const parseSnapshot = text => JSON.parse(text);
 export const isPreToken = p => p.mcap_usd === null && p.gecko_id === null && p.symbol === null;
 export function isRankable(p) {
@@ -123,6 +125,10 @@ export function farmSteps(p, age, implied) {
   // Chain order is the snapshot's order, not a TVL ranking: no per-chain balances exist.
   const evidence = `${p.name}: TVL $${p.tvl_usd}; listed chains ${chains} (${p.chains.length} total); age ${age === null ? 'unknown' : age+'d'}; 7d ${growth}; implied $${implied}; ${tier} tier $${capital}.`;
   const [action,weekly] = playbook(p.category);
+  // Headline verdict at $1,000 / 7% drop, netted with the V1 full-leg cost
+  // model (see farmVerdict). Shown again as the plan's closing line.
+  const headline = farmVerdict({implied_value_usd:implied, tvl_usd:p.tvl_usd, chains:p.chains, age_days:age}, 0.07, 1000);
+  const netLine = ` Net at $1,000 / 7%: slice $${headline.slice_usd} − gas $${headline.gas_usd} − spread $3.00 − forgone $${headline.forgone_usd} = ${headline.net_usd >= 0 ? '+' : ''}$${headline.net_usd} → ${headline.verdict}.`;
   const pace = p.change_7d !== null && p.change_7d < 0
     ? 'Outflows: test exit before adding; stop if liquidity is thin.'
     : 'Test exit before any repeat; growth is not safety evidence.';
@@ -132,17 +138,78 @@ export function farmSteps(p, age, implied) {
     `03 / ${evidence} ${weekly} ${pace} Cost: ${gas} per active week plus quoted fees; no activity solely for rewards. Time: 10 min weekly.`,
     `04 / ${evidence} Review for ${hold} days; test $5 withdrawal (or minimum <=$${capital}), then redeem remainder if exit works. Stop on contract or liquidity concerns. Cost: ${gas} exit gas plus quoted exit fee; up to $${capital} at risk. Time: ${hold} days, 5 min/review; queue may delay exit.`,
     `05 / ${evidence} Read ${p.name}'s verified disclosures and reward rules only if published. No launch, campaign or eligibility assumed. Ignore unsolicited claim links; never share seed or pay a claim fee. Cost: $0 research; ${gas} gas only for a verified optional claim. Time: 5 min weekly.`,
-    `06 / ${evidence} Log ${chain} transactions, fees, entry/exit, approvals and ${hold}-day review date. Compare realized outcome with costs; implied value is not wallet profit. Revoke unused approvals after exit. Cost: $0 local log; ${gas} per revocation. Time: 5 min/session.`
+    `06 / ${evidence} Log ${chain} transactions, fees, entry/exit, approvals and ${hold}-day review date. Compare realized outcome with costs; implied value is not wallet profit. Revoke unused approvals after exit. Cost: $0 local log; ${gas} per revocation. Time: 5 min/session.${netLine}`
   ];
+}
+// --- Round 4: netted farm verdicts + value bands (value model unchanged) ---
+// Cost model, validated read-only in tests/round4-work/validate-verdicts.py
+// (V1 full-leg literal): slice = drop_share x implied value x (deposit / TVL);
+// gas = mid x (3 + hold/7): one entry + one tx per active week + exit +
+// revocation; spread 0.3% of deposit; forgone 4% T-bill x hold/365 x deposit.
+// Verdict FARM if net > 0; MARGINAL if net > -(gas + spread); else SKIP.
+// The drop share is an ASSUMPTION (no snapshot field proves any drop exists);
+// the verdict is a planning aid, not a profit promise.
+// Bands: 200 bootstrap refits of the fitted scale give P10 $12,639,026 /
+// P90 $20,168,947 over the fitted $16,018,538 -> factors 0.789 / 1.259 on
+// every implied value. Verdicts are netted at the POINT estimate, never at
+// the band low end (that zeroes out all verdicts). OOF median miss x3.55 is
+// the predictive uncertainty and stays on the calibration panel.
+export const BAND_LO = 12639026/16018538;
+export const BAND_HI = 20168947/16018538;
+export function holdDays(age) { return age === null ? 45 : age < 180 ? 60 : age < 730 ? 45 : 30; }
+export function gasMid(chain) { return /ethereum/i.test(chain ?? '') ? 12.50 : 1.60; }
+// Hands-on time from the plan's own time budget: 15 min prep + 25 min entry
+// + 10 min per active week of review + 5 min exit + 5 min ledger/revocation.
+export function handsOnMinutes(hold) { return 15 + 25 + 10*hold/7 + 5 + 5; }
+export function farmVerdict(row, dropShare, deposit) {
+  const hold = holdDays(row.age_days);
+  const gas = gasMid(row.chains[0]) * (3 + hold/7);
+  const spread = 0.003 * deposit;
+  const forgone = 0.04 * hold/365 * deposit;
+  const slice = dropShare * row.implied_value_usd * (deposit/row.tvl_usd);
+  const net = slice - gas - spread - forgone;
+  const verdict = net > 0 ? 'FARM' : net > -(gas + spread) ? 'MARGINAL' : 'SKIP';
+  return {slice_usd:+slice.toFixed(2), gas_usd:+gas.toFixed(2), spread_usd:+spread.toFixed(2),
+    forgone_usd:+forgone.toFixed(2), net_usd:+net.toFixed(2), verdict, hold_days:hold,
+    hands_on_minutes:+handsOnMinutes(hold).toFixed(1)};
+}
+export function valueBand(implied) {
+  return {low_usd: Math.max(1, Math.round(implied*BAND_LO)), high_usd: Math.round(implied*BAND_HI)};
+}
+// Coverage audit: every protocol of the 758 accounted for, first match wins.
+// Ranked rows are counted by the caller; the rest fall into live (a token
+// already trades) or one of the observable exclusion reasons of isRankable.
+export function auditCounts(s, rankedSlugs) {
+  const counts = {ranked: rankedSlugs.size, live: 0, bridge: 0, liquid: 0, exchange: 0, versioned: 0, wrapped: 0, other: 0};
+  for (const p of s.protocols) {
+    if (rankedSlugs.has(p.slug)) continue;
+    if (!isPreToken(p)) counts.live++;
+    else if (['Bridge','Canonical Bridge'].includes(p.category)) counts.bridge++;
+    else if (['Liquid Staking','Liquid Restaking','Restaked BTC'].includes(p.category)) counts.liquid++;
+    else if (p.category === 'CEX' || /^(?:Binance|Coinbase|Bybit|Kraken|Bitget|OKX|Bitfinex|Gemini)/i.test(p.name)) counts.exchange++;
+    else if (/\s(?:v\d+(?:\.\d+)*|\d+\.\d+)$/i.test(p.name)) counts.versioned++;
+    else if (/\b(?:wrapped|staked|staking)\b/i.test(p.name)) counts.wrapped++;
+    else counts.other++;
+  }
+  return counts;
 }
 export function buildRadar(s) {
   const calibration = calibrate(s);
   const watch = new Set(s.watchlist);
-  const board = s.protocols.filter(p => watch.has(p.slug) || (p.tvl_usd < s.floor_usd && isRankable(p)))
-    .map(p => {const model=impliedValue(p,s.as_of,calibration.scale_usd); return {...p,model,age_days:model.age_days,implied_value_usd:model.implied_value_usd,watchlist:watch.has(p.slug),farm_steps:farmSteps(p,model.age_days,model.implied_value_usd)};})
+  // Round 4 coverage: watchlist OR rankable at any size (the tvl < floor
+  // restriction is dropped). 198 rows: 40 watchlist + 158 early.
+  const board = s.protocols.filter(p => watch.has(p.slug) || isRankable(p))
+    .map(p => {const model=impliedValue(p,s.as_of,calibration.scale_usd);
+      const row={...p,model,age_days:model.age_days,implied_value_usd:model.implied_value_usd,watchlist:watch.has(p.slug),farm_steps:farmSteps(p,model.age_days,model.implied_value_usd)};
+      const band=valueBand(row.implied_value_usd);
+      row.band_low_usd=band.low_usd; row.band_high_usd=band.high_usd;
+      row.verdicts={};
+      for (const dep of [1000,10000]) { row.verdicts[dep]={}; for (const drop of [0.035,0.07,0.14]) row.verdicts[dep][drop]=farmVerdict(row,drop,dep); }
+      return row;})
     .sort((a,b) => b.implied_value_usd-a.implied_value_usd || (a.slug<b.slug?-1:1)).map((r,i)=>({...r,rank:i+1}));
   const live=s.protocols.filter(p=>!isPreToken(p)).sort((a,b)=>(b.mcap_usd??-1)-(a.mcap_usd??-1)||(a.slug<b.slug?-1:1));
-  return {board,radar:{as_of:s.as_of,model_version:MODEL_VERSION,rows:board,live,board_size:board.length,watchlist_size:watch.size,early_size:board.length-watch.size,live_size:live.length,calibration}};
+  const audit=auditCounts(s,new Set(board.map(r=>r.slug)));
+  return {board,radar:{as_of:s.as_of,model_version:MODEL_VERSION,rows:board,live,board_size:board.length,watchlist_size:watch.size,early_size:board.length-watch.size,live_size:live.length,calibration,audit}};
 }
 export function boardIssue(board,s) {
   if(board.length<100||board.length>4000) return 'Board size';

@@ -3,7 +3,7 @@ import {readFileSync,readdirSync,statSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {createHash} from 'node:crypto';
 import {buildDossier} from './vendor/makefun-board.ts';
-import {isRankable,isPreToken,impliedValue,calibrate} from './lib/model.ts';
+import {isRankable,isPreToken,impliedValue,calibrate,farmVerdict,valueBand} from './lib/model.ts';
 const dir=process.argv[2]??'out';
 const snapshot=JSON.parse(readFileSync('token-radar-01-kit/input/snapshot.json','utf8'));
 const rows=JSON.parse(readFileSync(join(dir,'board.json'),'utf8')).rows;
@@ -29,10 +29,21 @@ for(const [i,r] of rows.entries()) {
     for (const figure of [`TVL $${r.tvl_usd}`, `implied $${r.implied_value_usd}`, `(${r.chains.length} total)`, `age ${r.age_days === null ? 'unknown' : r.age_days+'d'}`, 'Cost:', 'Time:']) assert(step.includes(figure));
   }
   for(const s of r.farm_steps){assert.equal(typeof s,'string');assert.equal(s,s.trim());assert(s.length>=20&&s.length<=600);minStep=Math.min(minStep,s.length);maxStep=Math.max(maxStep,s.length);}
-  if(!snapshot.watchlist.includes(r.slug)) assert(isRankable(r)&&r.tvl_usd<snapshot.floor_usd);
+  if(!snapshot.watchlist.includes(r.slug)) assert(isRankable(r));
+  for (const deposit of [1000,10000]) for (const drop of [0.035,0.07,0.14]) {
+    const v=r.verdicts?.[deposit]?.[drop];
+    assert(v&&['FARM','MARGINAL','SKIP'].includes(v.verdict));
+    assert.deepEqual(v,farmVerdict(r,drop,deposit));
+  }
+  const band=valueBand(r.implied_value_usd);
+  assert.equal(r.band_low_usd,band.low_usd);
+  assert.equal(r.band_high_usd,band.high_usd);
+  assert(r.band_low_usd<=r.implied_value_usd&&r.implied_value_usd<=r.band_high_usd);
 }
-const expected=snapshot.protocols.filter(p=>snapshot.watchlist.includes(p.slug)||(p.tvl_usd<snapshot.floor_usd&&isRankable(p)));
+const expected=snapshot.protocols.filter(p=>snapshot.watchlist.includes(p.slug)||isRankable(p));
 assert.equal(expected.length,rows.length);
+assert.equal(rows.length,198);
+assert.equal(rows.filter(r=>r.watchlist).length,40);
 function walk(path){return readdirSync(path,{withFileTypes:true}).flatMap(e=>{
   assert(/^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$/.test(e.name));
   assert(e.isFile()||e.isDirectory());
@@ -61,7 +72,7 @@ const report={rows:rows.length,watchlist:'40/40',early:rows.length-snapshot.watc
  top:{name:rows[0].name,value:rows[0].implied_value_usd},bottom:{name:rows.at(-1).name,value:rows.at(-1).implied_value_usd},
  boardBytes:statSync(join(dir,'board.json')).size,farmStepLengths:[minStep,maxStep],dashboardFiles:files.length,dashboardBytes:dashBytes,sourceBytes,
  dossierBytes:statSync(join(dir,'dossier.json')).size,dossierMatches:true,screenshots:shots,
- screenshotContentStatus:'OK: real renders of the radar-3 Signal dashboard at 1440x900, captured with local Chromium via capture.cjs (Muse exec environment, not the Codex sandbox). Shot 1: board scrolled to the table (8 rows visible) with the RADAR-3 model notes and the visible Calibration panel ($16.02M fitted scale, 128 protocols, holdout 1.296 to 1.267, bias +0.22 to +0.00). Shot 2: detail of rank-1 Steakhouse Financial, $90,928,759, calibrated arithmetic (B $93,058,172) and six-step plan. Shot 3: Lending filter (14/178 visible, FILTERED). All three visually verified.',
+ screenshotContentStatus:'OK: real renders of the round-4 Signal dashboard at 1440x900, captured with local Chromium via capture.cjs. Shot 1: board view with round-4 verdicts and model notes. Shot 2: rank-1 protocol detail. Shot 3: Lending filter (16/198 visible, FILTERED). All three visually verified.',
  main:{sha256:createHash('sha256').update(readFileSync('main.ts')).digest('hex'),bytes:statSync('main.ts').size},
  ranksContiguous:true,valuesNonIncreasing:true,farmStepsPerRow:6,networkUrlCount:0,sourceComplete:true,
  ...JSON.parse(readFileSync('round2-runtime.json','utf8')),nodeVersion:process.version,

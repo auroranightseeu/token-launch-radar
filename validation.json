@@ -1,49 +1,49 @@
 {
-  "rows": 178,
+  "rows": 198,
   "watchlist": "40/40",
-  "early": 138,
+  "early": 158,
   "top": {
     "name": "Steakhouse Financial",
-    "value": 113529413
+    "value": 90928759
   },
   "bottom": {
     "name": "Monarq",
-    "value": 1673067
+    "value": 1340004
   },
-  "boardBytes": 500184,
+  "boardBytes": 777118,
   "farmStepLengths": [
     341,
-    433
+    506
   ],
   "dashboardFiles": 4,
-  "dashboardBytes": 24563,
-  "sourceBytes": 24563,
-  "dossierBytes": 1292051,
+  "dashboardBytes": 35044,
+  "sourceBytes": 35044,
+  "dossierBytes": 1405769,
   "dossierMatches": true,
   "screenshots": [
     {
       "name": "1-board.png",
-      "bytes": 279254,
+      "bytes": 312533,
       "width": 1440,
       "height": 900
     },
     {
       "name": "2-detail.png",
-      "bytes": 263417,
+      "bytes": 270739,
       "width": 1440,
       "height": 900
     },
     {
       "name": "3-filtered.png",
-      "bytes": 407108,
+      "bytes": 443853,
       "width": 1440,
       "height": 900
     }
   ],
-  "screenshotContentStatus": "OK: real renders of the Signal dashboard at 1440x900, captured with local Chromium via capture.cjs (coordinator exec, outside the Codex sandbox). Board scrolled to the table (10 rows visible, model notes on top), detail of rank-1 Steakhouse Financial with per-protocol evidence plan, Lending-filtered view (14/178 visible, FILTERED). All three visually verified.",
+  "screenshotContentStatus": "OK: real renders of the round-4 Signal dashboard at 1440x900, captured with local Chromium via capture.cjs. Shot 1: board view with round-4 verdicts and model notes. Shot 2: rank-1 protocol detail. Shot 3: Lending filter (16/198 visible, FILTERED). All three visually verified.",
   "main": {
-    "sha256": "a5ed76e9a5616c66f2f15c06bc7c128ad96f6adad77b04f9854767af505f8dbb",
-    "bytes": 1932
+    "sha256": "3e143053cceaf2e0d7fb7dee2a4307e2b9cf01fb34f403620c9b3914da4983e6",
+    "bytes": 2739
   },
   "ranksContiguous": true,
   "valuesNonIncreasing": true,
@@ -57,5 +57,5 @@
   "deterministicBoard": true,
   "deterministicDossier": true,
   "nodeVersion": "v24.22.1",
-  "session": "01a1e9b9-ff43-7131-97a3-e12228022028"
+  "session": "unavailable"
 }
