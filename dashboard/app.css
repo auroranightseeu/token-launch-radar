@@ -4,4 +4,40 @@
 .verdict-summary{display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding:10px 12px;background:#101d2a;border-block:1px solid var(--line);font-size:11px}.verdict-summary>.eyebrow{margin-right:4px}.verdict-summary>span:not(.eyebrow){display:flex;gap:7px;align-items:center}.verdict-summary i{font-style:normal;font:9px ui-monospace,monospace}.farm{color:var(--cyan)}.marginal{color:var(--amber)}.skip{color:var(--red)}.verdict-summary small{width:100%;color:var(--muted);font-size:10px}.audit{display:flex;gap:0;overflow:auto;border-bottom:1px solid var(--line);padding:9px 0;color:var(--muted)}.audit div{min-width:80px;padding:0 12px;border-left:1px solid var(--line)}.audit div:first-child{min-width:190px;padding-left:0;border-left:0}.audit b,.audit span{display:block}.audit b{font:12px ui-monospace,monospace;color:var(--text)}.audit span{font-size:9px;text-transform:uppercase}.band{display:block;color:#a2b2bf;font:9px ui-monospace,monospace;margin-top:2px}.badge.verdict{display:inline-flex;min-width:82px;flex-direction:column;align-items:flex-start;gap:2px}.badge.verdict small{font:9px ui-monospace,monospace;color:var(--muted)}.badge.verdict.farm{border-color:#367e7a}.badge.verdict.marginal{border-color:#806a3b}.badge.verdict.skip{border-color:#7d4d58}.band-detail{font:11px ui-monospace,monospace;color:var(--muted)}.verdict-detail{margin-top:12px;padding:12px;border-left:2px solid var(--cyan);background:#101f2e}.verdict-detail>b{font:15px ui-monospace,monospace}.verdict-detail>span{display:block;color:var(--muted);font-size:10px}.verdict-detail dl{display:grid;grid-template-columns:1fr auto;gap:3px 12px;margin:10px 0;font:11px ui-monospace,monospace}.verdict-detail dt{color:var(--muted)}.verdict-detail dd{margin:0}.verdict-detail small{font-size:9px;color:var(--muted)}
 @media(max-width:800px){.audit div{min-width:70px;padding:0 8px}.verdict-summary{gap:10px}}
 
+/* Round 5: integrity strip (recomputed in browser) + set-aside group. */
+.integrity{display:flex;gap:0;flex-wrap:wrap;border:1px solid var(--line);border-left:3px solid var(--cyan);background:#0c1a29;padding:10px 0;margin-top:16px}
+.integrity div{min-width:130px;padding:4px 14px;border-left:1px solid var(--line)}
+.integrity div.integrity-head{min-width:210px;padding-left:14px;border-left:0}
+.integrity b{display:block;font:12px ui-monospace,monospace;color:var(--text)}
+.integrity b.pass{color:var(--cyan)}
+.integrity b.fail{color:var(--red)}
+.integrity span{display:block;font-size:9px;text-transform:uppercase;color:var(--muted)}
+.integrity .integrity-head b{color:var(--cyan);letter-spacing:1px}
+.audit .set-aside{min-width:360px;border-left:2px solid var(--amber)}
+.audit .set-aside b{color:var(--amber)}
+/* Round 5 item 8: best-farms strip (computed from board, not hardcoded). */
+.best-farms{display:flex;gap:0;flex-wrap:wrap;border:1px solid var(--line);border-left:3px solid var(--cyan);background:#0c1a29;padding:10px 0;margin-top:16px}
+.best-farms .bf-head{min-width:170px;padding:4px 14px}
+.best-farms .bf-head b{display:block;font:11px ui-monospace,monospace;letter-spacing:1px;color:var(--cyan)}
+.best-farms .bf-head span{display:block;font-size:9px;text-transform:uppercase;color:var(--muted)}
+.best-farms .bf{flex:1 1 0;min-width:0;padding:4px 14px;border-left:1px solid var(--line)}
+.best-farms .bf b{display:block;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.best-farms .bf .nph{display:block;font:14px ui-monospace,monospace;color:var(--cyan)}
+.best-farms .bf .meta{display:block;font:10px/1.6 ui-monospace,monospace;color:var(--muted)}
+/* Round 5 item 2: term x two-tests fit table. */
+.fit-table{grid-column:1/-1;border-top:1px solid var(--line);padding-top:10px;margin-top:4px}
+.fit-table table{width:100%;border-collapse:collapse;margin-top:6px}
+.fit-table th,.fit-table td{text-align:left;font-size:11px;padding:6px 10px;border-top:1px solid #1b2b3d}
+.fit-table th{font-size:10px;color:var(--muted);background:#132235}
+.fit-table td.num{font-family:ui-monospace,monospace}
+.fit-table td.pass{color:var(--cyan);font-family:ui-monospace,monospace}
+.fit-table td.muted{color:var(--muted);font-family:ui-monospace,monospace}
+.fit-table p{margin-top:6px;font-size:10px}
+.coverage{border-top:1px solid var(--line);padding-top:10px;margin-top:10px}
+.coverage .chips{display:flex;flex-wrap:wrap;gap:6px 24px;margin-top:6px}
+.coverage .chips b{font:14px ui-monospace,monospace;color:var(--text);display:block}
+.coverage .chips span{font-size:10px;color:var(--muted);display:block}
+
 .hero{padding:18px 0;gap:28px}h1{font-size:36px;margin:8px 0 10px}.scope{width:140px;height:140px}.scope-label{left:24px;bottom:20px}.metric b{font-size:27px}td{padding:8px 14px}.controls{padding:14px 0}.model{padding:12px 16px}.steps{gap:7px}.steps li{font-size:11px;line-height:1.45;padding-bottom:7px}
+.plan-header{font:11px ui-monospace,monospace;color:var(--muted);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:0 0 10px;background:var(--surface-muted)}
+.verdict-summary .honest{display:block;color:var(--accent);font-weight:600;margin-top:4px}

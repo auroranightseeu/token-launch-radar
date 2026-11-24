@@ -1,7 +1,23 @@
-// Identity and category never enter this snapshot-only value model.
-// Round 4 keeps the radar-3 value model unchanged (same fitted scale, same
-// B/G/M forms); it adds netted farm verdicts, value bands and full coverage.
-export const MODEL_VERSION = 'radar-4';
+// Round 5 item 2 — FITTED value model (locked method, evaluated once).
+// log(mcap) = 6.964566512435253 + 0.5222655485140022 * log(TVL), OLS on the
+// 128 tokened protocols (displayed rounded as 6.9646 + 0.5223 × log(TVL)).
+// Held-out (median log miss): LOO 1.2234, walk-forward 1.0571.
+// Baseline flat median multiple: LOO 1.6233, WF 1.6823.
+// Family (ridge), 7d growth, age tested and NOT kept — none reduced the miss
+// in BOTH tests, so growth and maturity multipliers are 1 (neutral).
+// Fit script: /tmp/fit-r5-item2.py (method locked before seeing results).
+export const MODEL_VERSION = 'radar-5';
+export const FIT_INTERCEPT = 6.964566512435253;
+export const FIT_SLOPE = 0.5222655485140022;
+export const FIT_TABLE = [
+  {term: 'baseline (flat median multiple)', loo: 1.6233, wf: 1.6823, kept: 'baseline'},
+  {term: '+ size curve (log TVL)', loo: 1.2234, wf: 1.0571, kept: 'KEPT'},
+  {term: '+ family effect (ridge)', loo: 1.3173, wf: 0.8910, kept: 'tested, not kept'},
+  {term: '+ 7d TVL growth', loo: 1.3253, wf: 1.1411, kept: 'tested, not kept'},
+  {term: '+ age', loo: 1.2866, wf: 2.2132, kept: 'tested, not kept'},
+];
+export const FIT_HELDOUT = {loo_median_miss: 1.2234, wf_median_miss: 1.0571,
+  baseline_loo: 1.6233, baseline_wf: 1.6823};
 export const parseSnapshot = text => JSON.parse(text);
 export const isPreToken = p => p.mcap_usd === null && p.gecko_id === null && p.symbol === null;
 export function isRankable(p) {
@@ -14,88 +30,35 @@ export function impliedValue(p, asOf, scaleUsd = 20000000) {
   const age_days = p.listed_at ? Math.max(0, Math.floor((Date.parse(asOf)-Date.parse(p.listed_at))/86400000)) : null;
   const effective_age_days = age_days ?? 180;
   const growth_pct = Math.max(-60, Math.min(100, p.change_7d ?? 0));
-  const base_usd = scaleUsd * Math.log1p(p.tvl_usd/50000000)/Math.LN2;
-  const growth_multiplier = growth_pct < 0 ? Math.exp(growth_pct/100) : 1+0.35*Math.log1p(growth_pct/100);
-  const maturity_multiplier = 0.65+0.55*(1-Math.exp(-effective_age_days/540));
-  return {age_days, effective_age_days, growth_pct, base_usd, growth_multiplier, maturity_multiplier,
-    implied_value_usd:Math.max(1,Math.round(base_usd*growth_multiplier*maturity_multiplier))};
+  // Fitted size curve only: growth and maturity are 1 (tested, not kept).
+  const log_tvl = Math.log(p.tvl_usd);
+  const base_usd = Math.exp(FIT_INTERCEPT + FIT_SLOPE * log_tvl);
+  return {age_days, effective_age_days, growth_pct, base_usd, growth_multiplier: 1, maturity_multiplier: 1,
+    intercept: FIT_INTERCEPT, slope: FIT_SLOPE, log_tvl,
+    implied_value_usd:Math.max(1,Math.round(base_usd))};
 }
-// Scale-free unit of the radar-2 form: implied = scaleUsd * unit. Used only
-// by calibrate() so the fit is exact (no rounding, no clamp) and stays in one place.
-function unitValue(p, asOf) {
-  const age_days = p.listed_at ? Math.max(0, Math.floor((Date.parse(asOf)-Date.parse(p.listed_at))/86400000)) : null;
-  const effective_age_days = age_days ?? 180;
-  const growth_pct = Math.max(-60, Math.min(100, p.change_7d ?? 0));
-  const growth_multiplier = growth_pct < 0 ? Math.exp(growth_pct/100) : 1+0.35*Math.log1p(growth_pct/100);
-  const maturity_multiplier = 0.65+0.55*(1-Math.exp(-effective_age_days/540));
-  return {unit: Math.log1p(p.tvl_usd/50000000)/Math.LN2 * growth_multiplier * maturity_multiplier};
-}
-const _median = xs => { const s=[...xs].sort((a,b)=>a-b); const n=s.length; return n%2 ? s[(n-1)/2] : (s[n/2-1]+s[n/2])/2; };
-const _mean = xs => xs.reduce((a,b)=>a+b,0)/xs.length;
-function _ranksAvg(xs) {
-  const order = xs.map((v,i)=>[v,i]).sort((a,b)=>a[0]-b[0]);
-  const r = new Array(xs.length);
-  for (let i=0;i<order.length;) {
-    let j=i; while (j+1<order.length && order[j+1][0]===order[i][0]) j++;
-    const avg=(i+j)/2+1; for (let k=i;k<=j;k++) r[order[k][1]]=avg; i=j+1;
-  }
-  return r;
-}
-function _spearman(xs, ys) {
-  const rx=_ranksAvg(xs), ry=_ranksAvg(ys), mx=_mean(rx), my=_mean(ry);
-  let num=0, dx=0, dy=0;
-  for (let i=0;i<xs.length;i++) { num+=(rx[i]-mx)*(ry[i]-my); dx+=(rx[i]-mx)**2; dy+=(ry[i]-my)**2; }
-  return num/Math.sqrt(dx*dy);
-}
-function _oofMetrics(actual, pred) {
-  const le = actual.map((a,i)=>Math.log(pred[i])-Math.log(a));
-  return {n:actual.length, median_abs_log_err:_median(le.map(Math.abs)), mean_abs_log_err:_mean(le.map(Math.abs)),
-    bias:_mean(le), spearman:_spearman(actual,pred)};
-}
-// Calibrate the value-model scale on protocols that already have a token.
-// The runtime computes the scale from the snapshot; nothing is hardcoded.
-// Calibration set: mcap_usd > 0 AND tvl_usd > 0. Fit: S = exp(mean(log(mcap)
-// - log(B0*G*M))) with the exact radar-2 G/M forms. 5-fold holdout (fold =
-// index % 5 of the calibration list sorted by slug) reports out-of-fold
-// metrics for radar-2 (fixed $20M scale) and radar-3 (per-fold fitted scale).
-// Fallback: fewer than 20 calibration protocols or a non-finite fit keeps
-// the $20M scale and flags fallback: true.
+// Calibration for the round-5 fitted model. The intercept/slope and the
+// held-out medians come from the locked round-5 item-2 fit (Python,
+// /tmp/fit-r5-item2.py); n is counted from the snapshot here so the panel
+// stays honest. The old scale/OOF block is retired with the radar-3 model.
 export function calibrate(s) {
-  const exclusions = {mcap_null:0, mcap_zero:0, mcap_negative:0, mcap_sub_dollar:0, tvl_nonpositive:0};
-  const set = [];
-  for (const p of s.protocols) {
-    if (p.mcap_usd === null) { exclusions.mcap_null++; continue; }
-    if (p.mcap_usd === 0) { exclusions.mcap_zero++; continue; }
-    if (p.mcap_usd < 0) { exclusions.mcap_negative++; continue; }
-    if (p.mcap_usd < 1) { exclusions.mcap_sub_dollar++; continue; }
-    if (!(p.tvl_usd > 0)) { exclusions.tvl_nonpositive++; continue; }
-    set.push(p);
-  }
-  set.sort((a,b)=> a.slug<b.slug?-1:1);
-  const fitScale = rows => {
-    if (!rows.length) return null;
-    const v = Math.exp(_mean(rows.map(p => Math.log(p.mcap_usd) - Math.log(unitValue(p, s.as_of).unit))));
-    return Number.isFinite(v) && v > 0 ? v : null;
-  };
-  let scale_usd = 20000000, fallback = false;
-  if (set.length >= 20) { const f = fitScale(set); if (f === null) fallback = true; else scale_usd = f; }
-  else fallback = true;
-  const folds = [[],[],[],[],[]];
-  set.forEach((p,i)=>folds[i%5].push(p));
-  const per_fold_scales_usd = [];
-  const oof2 = {actual:[], pred:[]}, oof3 = {actual:[], pred:[]};
-  for (let f=0; f<5; f++) {
-    const train = folds.flatMap((fl,i)=> i===f ? [] : fl);
-    const sF = fitScale(train) ?? 20000000;
-    per_fold_scales_usd.push(sF);
-    for (const p of folds[f]) {
-      const u = unitValue(p, s.as_of).unit;
-      oof2.actual.push(p.mcap_usd); oof2.pred.push(20000000*u);
-      oof3.actual.push(p.mcap_usd); oof3.pred.push(sF*u);
-    }
-  }
-  return {scale_usd, ratio_vs_20m: scale_usd/20000000, n:set.length, exclusions,
-    per_fold_scales_usd, oof:{radar2:_oofMetrics(oof2.actual,oof2.pred), radar3:_oofMetrics(oof3.actual,oof3.pred)}, fallback};
+  const set = s.protocols.filter(p => p.mcap_usd !== null && p.mcap_usd > 0 && p.tvl_usd > 0);
+  return {model: 'fitted size curve', intercept: FIT_INTERCEPT, slope: FIT_SLOPE,
+    n: set.length, loo_median_miss: FIT_HELDOUT.loo_median_miss,
+    wf_median_miss: FIT_HELDOUT.wf_median_miss,
+    baseline_loo: FIT_HELDOUT.baseline_loo, baseline_wf: FIT_HELDOUT.baseline_wf,
+    fit_table: FIT_TABLE,
+    bands: {p25_mult: BAND_LO, p75_mult: BAND_HI, p10_mult: BAND_P10, p90_mult: BAND_P90,
+      coverage: BAND_COVERAGE},
+    odds: {base_rate: ODDS_BRIER.base_rate, base_cv: ODDS_BRIER.base_cv, base_wf: ODDS_BRIER.base_wf,
+      final_cv: ODDS_BRIER.final_cv, final_wf: ODDS_BRIER.final_wf,
+      terms: ['log age','category (ridge)','log TVL','7d growth'], kept: 'all 4',
+      table: [{term:'base rate', cv: 0.247620, wf: 0.287334, dcv: 0.000000, dwf: 0.000000, icv: 0.00000, iwf: 0.00000, kept:'baseline'},
+        {term:'+ listing age (log)', cv: 0.241589, wf: 0.280136, dcv: -0.006031, dwf: -0.007197, icv: -0.00603, iwf: -0.00720, kept:'KEPT'},
+        {term:'+ category (ridge)', cv: 0.222637, wf: 0.276024, dcv: -0.024983, dwf: -0.011310, icv: -0.01895, iwf: -0.00411, kept:'KEPT'},
+        {term:'+ log TVL', cv: 0.221077, wf: 0.275995, dcv: -0.026543, dwf: -0.011339, icv: -0.00156, iwf: -0.00003, kept:'KEPT'},
+        {term:'+ 7d growth', cv: 0.216797, wf: 0.275842, dcv: -0.030823, dwf: -0.011492, icv: -0.00428, iwf: -0.00015, kept:'KEPT'}]},
+    fallback: false};
 }
 function playbook(category) {
   const c = (category ?? '').toLowerCase();
@@ -113,7 +76,9 @@ function playbook(category) {
   if (/yield|farm|vault/.test(c)) return ['Inspect underlying assets, leverage and exit fees; deposit into one simple vault and retain its share receipt.', 'Review realized yield and exposures; harvest only when rewards exceed transaction fees.'];
   return ['Inspect documented product mechanics and withdrawal routes; test the smallest supported core action. Skip funding if unclear.', 'Repeat one documented core action only when useful; check balances and withdrawal availability first.'];
 }
-// Evidence repeats deliberately: each standalone step preserves its snapshot context.
+// Round 5 item 5: header ONCE (evidence), steps carry action + COST + TIME only.
+// Gas ranges and capital tiers are ASSUMPTIONS (snapshot has no gas/fee data);
+// hold-by-age and the $5 test amount are sizing rules, not measurements.
 export function farmSteps(p, age, implied) {
   const chain = p.chains[0] ?? 'documented network';
   const capital = p.tvl_usd >= 1e9 ? 150 : p.tvl_usd >= 5e7 ? 100 : 50;
@@ -132,30 +97,28 @@ export function farmSteps(p, age, implied) {
   const pace = p.change_7d !== null && p.change_7d < 0
     ? 'Outflows: test exit before adding; stop if liquidity is thin.'
     : 'Test exit before any repeat; growth is not safety evidence.';
-  return [
-    `01 / ${evidence} Verify official documentation, ${chain} deployment, assets and contract address independently; snapshot has no app link. Use a separate wallet on ONE chain. Cost: $0 research; reserve ${gas} gas, $${capital} at-risk capital. Time: 15 min.`,
-    `02 / ${evidence} On ${chain}: ${action} Exposure <=$${capital}; observe if minimum exceeds budget. Cost: ${gas} gas plus displayed fees/spread; loss possible. Time: 20–30 min.`,
-    `03 / ${evidence} ${weekly} ${pace} Cost: ${gas} per active week plus quoted fees; no activity solely for rewards. Time: 10 min weekly.`,
-    `04 / ${evidence} Review for ${hold} days; test $5 withdrawal (or minimum <=$${capital}), then redeem remainder if exit works. Stop on contract or liquidity concerns. Cost: ${gas} exit gas plus quoted exit fee; up to $${capital} at risk. Time: ${hold} days, 5 min/review; queue may delay exit.`,
-    `05 / ${evidence} Read ${p.name}'s verified disclosures and reward rules only if published. No launch, campaign or eligibility assumed. Ignore unsolicited claim links; never share seed or pay a claim fee. Cost: $0 research; ${gas} gas only for a verified optional claim. Time: 5 min weekly.`,
-    `06 / ${evidence} Log ${chain} transactions, fees, entry/exit, approvals and ${hold}-day review date. Compare realized outcome with costs; implied value is not wallet profit. Revoke unused approvals after exit. Cost: $0 local log; ${gas} per revocation. Time: 5 min/session.${netLine}`
-  ];
+  const assumptions = `Assumptions (no snapshot data): gas ${gas}/tx is an assumed range, not measured; at-risk capital $${capital} by TVL tier is assumed sizing; hold ${hold}d by age is a rule; $5 test withdrawal is assumed. Drop share and deposit are the headline scenario (7% / $1,000).`;
+  return {header: evidence, assumptions, steps: [
+    `01 / Verify official documentation, ${chain} deployment, assets and contract address independently; snapshot has no app link. Use a separate wallet on ONE chain. Cost: $0 research; reserve ${gas} gas, $${capital} at-risk capital. Time: 15 min.`,
+    `02 / On ${chain}: ${action} Exposure <=$${capital}; observe if minimum exceeds budget. Cost: ${gas} gas plus displayed fees/spread; loss possible. Time: 20–30 min.`,
+    `03 / ${weekly} ${pace} Cost: ${gas} per active week plus quoted fees; no activity solely for rewards. Time: 10 min weekly.`,
+    `04 / Review for ${hold} days; test $5 withdrawal (or minimum <=$${capital}), then redeem remainder if exit works. Stop on contract or liquidity concerns. Cost: ${gas} exit gas plus quoted exit fee; up to $${capital} at risk. Time: ${hold} days, 5 min/review; queue may delay exit.`,
+    `05 / Read ${p.name}'s verified disclosures and reward rules only if published. No launch, campaign or eligibility assumed. Ignore unsolicited claim links; never share seed or pay a claim fee. Cost: $0 research; ${gas} gas only for a verified optional claim. Time: 5 min weekly.`,
+    `06 / Log ${chain} transactions, fees, entry/exit, approvals and ${hold}-day review date. Compare realized outcome with costs; implied value is not wallet profit. Revoke unused approvals after exit. Cost: $0 local log; ${gas} per revocation. Time: 5 min/session.${netLine}`
+  ]};
 }
-// --- Round 4: netted farm verdicts + value bands (value model unchanged) ---
-// Cost model, validated read-only in tests/round4-work/validate-verdicts.py
-// (V1 full-leg literal): slice = drop_share x implied value x (deposit / TVL);
-// gas = mid x (3 + hold/7): one entry + one tx per active week + exit +
-// revocation; spread 0.3% of deposit; forgone 4% T-bill x hold/365 x deposit.
-// Verdict FARM if net > 0; MARGINAL if net > -(gas + spread); else SKIP.
-// The drop share is an ASSUMPTION (no snapshot field proves any drop exists);
-// the verdict is a planning aid, not a profit promise.
-// Bands: 200 bootstrap refits of the fitted scale give P10 $12,639,026 /
-// P90 $20,168,947 over the fitted $16,018,538 -> factors 0.789 / 1.259 on
-// every implied value. Verdicts are netted at the POINT estimate, never at
-// the band low end (that zeroes out all verdicts). OOF median miss x3.55 is
-// the predictive uncertainty and stays on the calibration panel.
-export const BAND_LO = 12639026/16018538;
-export const BAND_HI = 20168947/16018538;
+// --- Round 5 item 3: HONEST bands from held-out LOO residuals ---
+// P25/P75/P10/P90 of log(actual) - log(pred) for the size curve, LOO over
+// the 128 tokened protocols (script /tmp/bands-r5-item3.py). Multipliers on
+// the implied value. LOO coverage: P25-P75 50.0% (64/128), P10-P90 79.7%
+// (102/128). Walk-forward coverage (same LOO bands, 32 newest): P25-P75
+// 56.2% (18/32), P10-P90 75.0% (24/32) — below the nominal 80%, as-is.
+// These replace the round-4 bootstrap bands (0.789/1.259).
+export const BAND_LO = 0.30601827322904396;
+export const BAND_HI = 4.196636086444757;
+export const BAND_P10 = 0.06188087796414982;
+export const BAND_P90 = 8.628959859351525;
+export const BAND_COVERAGE = {loo_2575: 50.0, loo_1090: 79.6875, wf_2575: 56.25, wf_1090: 75.0};
 export function holdDays(age) { return age === null ? 45 : age < 180 ? 60 : age < 730 ? 45 : 30; }
 export function gasMid(chain) { return /ethereum/i.test(chain ?? '') ? 12.50 : 1.60; }
 // Hands-on time from the plan's own time budget: 15 min prep + 25 min entry
@@ -174,7 +137,8 @@ export function farmVerdict(row, dropShare, deposit) {
     hands_on_minutes:+handsOnMinutes(hold).toFixed(1)};
 }
 export function valueBand(implied) {
-  return {low_usd: Math.max(1, Math.round(implied*BAND_LO)), high_usd: Math.round(implied*BAND_HI)};
+  return {low_usd: Math.max(1, Math.round(implied*BAND_LO)), high_usd: Math.round(implied*BAND_HI),
+    p10_usd: Math.max(1, Math.round(implied*BAND_P10)), p90_usd: Math.round(implied*BAND_P90)};
 }
 // Coverage audit: every protocol of the 758 accounted for, first match wins.
 // Ranked rows are counted by the caller; the rest fall into live (a token
@@ -193,16 +157,42 @@ export function auditCounts(s, rankedSlugs) {
   }
   return counts;
 }
+// --- Round 5 item 4: TOKEN ODDS (logistic regression, method LOCKED) ---
+// Label y=1 if NOT isPreToken (mcap OR gecko_id OR symbol present): 416/758,
+// base rate 0.5488. Features (all KEPT — Brier down in BOTH 10-fold and
+// walk-forward): log age, category (ridge lam=10), log TVL, 7d growth.
+// Brier: base 0.2476/0.2873 -> final 0.2168/0.2758 (10-fold / walk-forward).
+// Implied value = value-if-launch x odds, labelled SCENARIO (expected value).
+// Script: /tmp/odds-r5-item4.py (fit-r5-item4 in workspace).
+export const ODDS_MU = [6.109676547470256,17.734672724700136,-0.06371935356200527];
+export const ODDS_SD = [1.0271535287839602,1.807813926607854,0.12074851072237631];
+export const ODDS_BETA = [0.17732986409159363,0.2935616549074662,0.18595267953450254,-0.3534760965079594,0.07220622972649303,0.10765119464736829,-0.04794478397187428,0.1707219460302503,-0.2429191173427235,-0.049797458690944596,-0.02581456955890809,-0.8876140283029496,0.05569435398554073,-0.07154929378656107,-0.11948343768084442,0.04430719427111991,-0.06541904055680194,0.18686950838862582,0.0010461775576074128,0.03631549751442147,0.04540890886579597,-0.06763259996786604,0.01940408281177837,0.7071021650185406,-0.03304009083129429,-0.07188891701423063,-0.014876232996020214,0.16506813567468379,-0.010452024165147417,-0.051167946277221016,0.16515825661159655,0.6286412261674084,0.08607913062026058,0.023471165694208755,-0.23127618685446866,0.06521567711641497,0.0302830186841271,-0.04968811478596962,-0.4024000773962696,0.1409018604457194,-0.05405397921338577,0.02270871933459497,-0.07212290724159569,0.06372956097596705,-0.020104723600753795,0.03566508590990502,-0.08456439157472499,0.03649513661929997,-0.705954638127259,0.04216615553149877,-0.08827729871465961,-0.1263962843957272,0.13398395511768368,0.16513322944242922,-0.027948419593184677,0.21905380154930643,0.15190518832874253];
+export const ODDS_CATS = ["AI Agents","Algo-Stables","Anchor BTC","Basis Trading","Bridge","CDP","CDP Manager","CEX","Canonical Bridge","CeDeFi","Chain","Collateral Management","Collateral Markets","Cross Chain Bridge","Crypto Card Issuer","DOR","Decentralized AI","Decentralized BTC","Derivatives","Dexs","Dual-Token Stablecoin","Farm","Governance Incentives","Indexes","Insurance","Interest Rate Derivatives","Launchpad","Lending","Leveraged Farming","Liquid Restaking","Liquid Staking","Liquidity Manager","NFT Marketplace","OTC Marketplace","Onchain Capital Allocator","Options","Options Vault","Payments","Prediction Market","Privacy","RWA","Reserve Currency","Restaked BTC","Restaking","Risk Curators","Stablecoin Issuer","Stablecoin Wrapper","Staking Pool","Synthetics","Token Locker","Uncollateralized Lending","Yield","Yield Aggregator"];
+export const ODDS_BRIER = {base_cv: 0.247620, base_wf: 0.287334, final_cv: 0.216797, final_wf: 0.275842, base_rate: 0.548813};
+export function tokenOdds(p, as_of) {
+  const age = Math.log(Math.max(1, p.listed_at ? Math.max(1, Math.floor((new Date(as_of)-new Date(p.listed_at))/864e5)) : 180));
+  const lt = Math.log(p.tvl_usd);
+  const gr = p.change_7d == null ? 0 : Math.max(-60, Math.min(100, p.change_7d))/100;
+  const a = (age-ODDS_MU[0])/ODDS_SD[0], l = (lt-ODDS_MU[1])/ODDS_SD[1], g = (gr-ODDS_MU[2])/ODDS_SD[2];
+  let z = ODDS_BETA[0] + ODDS_BETA[1]*a + ODDS_BETA[2]*l + ODDS_BETA[3]*g;
+  const ci = ODDS_CATS.indexOf(p.category);
+  if (ci >= 0) z += ODDS_BETA[4+ci];
+  return 1/(1+Math.exp(-Math.max(-30, Math.min(30, z))));
+}
 export function buildRadar(s) {
   const calibration = calibrate(s);
   const watch = new Set(s.watchlist);
   // Round 4 coverage: watchlist OR rankable at any size (the tvl < floor
   // restriction is dropped). 198 rows: 40 watchlist + 158 early.
   const board = s.protocols.filter(p => watch.has(p.slug) || isRankable(p))
-    .map(p => {const model=impliedValue(p,s.as_of,calibration.scale_usd);
-      const row={...p,model,age_days:model.age_days,implied_value_usd:model.implied_value_usd,watchlist:watch.has(p.slug),farm_steps:farmSteps(p,model.age_days,model.implied_value_usd)};
+    .map(p => {const model=impliedValue(p,s.as_of);
+      const odds=tokenOdds(p,s.as_of);
+      const scenario=Math.max(1,Math.round(model.implied_value_usd*odds));
+      const plan=farmSteps(p,model.age_days,scenario);
+      const row={...p,model,age_days:model.age_days,value_if_launch_usd:model.implied_value_usd,token_odds:+odds.toFixed(4),implied_value_usd:scenario,watchlist:watch.has(p.slug),plan_header:plan.header,plan_assumptions:plan.assumptions,farm_steps:plan.steps};
       const band=valueBand(row.implied_value_usd);
       row.band_low_usd=band.low_usd; row.band_high_usd=band.high_usd;
+      row.band_p10_usd=band.p10_usd; row.band_p90_usd=band.p90_usd;
       row.verdicts={};
       for (const dep of [1000,10000]) { row.verdicts[dep]={}; for (const drop of [0.035,0.07,0.14]) row.verdicts[dep][drop]=farmVerdict(row,drop,dep); }
       return row;})
